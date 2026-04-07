@@ -363,6 +363,12 @@
             { start: '16:48', end: '17:18', fesEnd: '17:08' },
          ]
 
+         function addMinutes(hhmm, mins) {
+            const [h, m] = hhmm.split(':').map(Number)
+            const total = h * 60 + m + mins
+            return String(Math.floor(total / 60)).padStart(2, '0') + ':' + String(total % 60).padStart(2, '0')
+         }
+
          function detectCellType(cell) {
             const text = cell.text
             if (/[가-힣\d]N/.test(text)) return 'NDT'
@@ -390,10 +396,12 @@
             }
 
             const results = []
+            const consumed = new Set()
 
             // 오른쪽 표의 각 칸(고정 슬롯) 기준으로 검증
             const slotCount = Math.max(cells.length, TIME_SLOTS.length)
             for (let i = 0; i < slotCount; i++) {
+               if (consumed.has(i)) continue
                const slot = TIME_SLOTS[i]
                const cell = cells[i]
                if (!slot) break
@@ -415,6 +423,17 @@
 
                const isMulti = g.entries.length > 1
 
+               // 1시간 도수치료 감지: 다음 슬롯 칸에도 같은 이름이 (도)로 있으면 1시간으로 간주
+               let isOneHour = false
+               if (cellType === '도수치료' && g.entries.length === 1) {
+                  const nextCell = cells[i + 1]
+                  const nextSlot = TIME_SLOTS[i + 1]
+                  if (nextCell && nextSlot && detectCellType(nextCell) === '도수치료' && nameInText(g.entries[0].name, nextCell.text)) {
+                     isOneHour = true
+                     consumed.add(i + 1)
+                  }
+               }
+
                // 1. 이름별 종료시간·치료종류 검증
                for (const entry of g.entries) {
                   // 이름이 표에 있는지 (숫자 유연 매칭)
@@ -423,10 +442,15 @@
                      continue
                   }
 
-                  // 종료시간 검증 (도수치료는 30분/20분 둘 다 허용)
+                  // 종료시간 검증 (도수치료는 30분/20분/1시간 허용)
                   if (cellType && slot) {
                      if (cellType === '도수치료') {
-                        if (entry.end !== slot.end && entry.end !== slot.fesEnd) {
+                        if (isOneHour) {
+                           const expected = addMinutes(slot.start, 60)
+                           if (entry.end !== expected) {
+                              errors.push(entry.name + ' 종료시간: ' + entry.end + ' → 정답 ' + expected + ' (1시간)')
+                           }
+                        } else if (entry.end !== slot.end && entry.end !== slot.fesEnd) {
                            errors.push(entry.name + ' 종료시간: ' + entry.end + ' → 정답 ' + slot.end + ' 또는 ' + slot.fesEnd)
                         }
                      } else {
