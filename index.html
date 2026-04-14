@@ -326,8 +326,9 @@
                   const colspan = parseInt(td.getAttribute('colspan')) || 1
                   const rowspan = parseInt(td.getAttribute('rowspan')) || 1
                   for (let dr = 0; dr < rowspan && r + dr < numRows; dr++) for (let dc = 0; dc < colspan; dc++) occupied[r + dr].add(col + dc)
-                  if (!slots.has(col)) slots.set(col, { texts: [], elements: [], isLabel: false })
+                  if (!slots.has(col)) slots.set(col, { texts: [], elements: [], isLabel: false, maxColspan: 0 })
                   if (rowspan > 1) slots.get(col).isLabel = true
+                  if (colspan > slots.get(col).maxColspan) slots.get(col).maxColspan = colspan
                   const text = (td.textContent || '').replace(/[\s\u00A0]/g, '')
                   if (text) {
                      slots.get(col).texts.push(text)
@@ -339,11 +340,15 @@
 
             return Array.from(slots.entries())
                .sort((a, b) => a[0] - b[0])
-               .filter(([, slot]) => !slot.isLabel && slot.texts.length > 0)
-               .map(([, slot]) => ({
-                  text: slot.texts.join(''),
-                  blue: slot.elements.some((el) => isBlueBg(el)),
-               }))
+               .filter(([, slot]) => !slot.isLabel && slot.maxColspan >= 2)
+               .map(([, slot]) =>
+                  slot.texts.length > 0
+                     ? {
+                          text: slot.texts.join(''),
+                          blue: slot.elements.some((el) => isBlueBg(el)),
+                       }
+                     : null
+               )
          }
 
          const TIME_SLOTS = [
@@ -405,10 +410,20 @@
                const slot = TIME_SLOTS[i]
                const cell = cells[i]
                if (!slot) break
-               if (!cell) continue // 빈 칸(점심 등)은 건너뜀
+
+               const g = groupByStart.get(slot.start)
+
+               // 둘 다 비었으면 조용히 스킵 (미출근/조퇴 시간대)
+               if (!cell && !g) continue
+
+               // 표만 비었음 → EMR에 있는데 표 기록 없음
+               if (!cell) {
+                  results.push({ ...g, errors: ['표에 기록 없음'], ok: false })
+                  groupByStart.delete(slot.start)
+                  continue
+               }
 
                const cellType = detectCellType(cell)
-               const g = groupByStart.get(slot.start)
 
                // EMR에 해당 슬롯이 없음 → 빠뜨림
                if (!g) {
